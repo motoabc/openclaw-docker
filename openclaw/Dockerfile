@@ -1,3 +1,4 @@
+
 # syntax=docker/dockerfile:1.7
 
 # Opt-in extension dependencies at build time (space-separated directory names).
@@ -14,11 +15,10 @@
 #   Slim (bookworm-slim):    docker build --build-arg OPENCLAW_VARIANT=slim .
 ARG OPENCLAW_EXTENSIONS=""
 ARG OPENCLAW_VARIANT=default
-ARG OPENCLAW_CADDY_IMAGE="caddy:2"
-ARG OPENCLAW_NODE_BOOKWORM_IMAGE="node:24-bookworm@sha256:3a09aa6354567619221ef6c45a5051b671f953f0a1924d1f819ffb236e520e6b"
-ARG OPENCLAW_NODE_BOOKWORM_DIGEST="sha256:3a09aa6354567619221ef6c45a5051b671f953f0a1924d1f819ffb236e520e6b"
-ARG OPENCLAW_NODE_BOOKWORM_SLIM_IMAGE="node:24-bookworm-slim@sha256:e8e2e91b1378f83c5b2dd15f0247f34110e2fe895f6ca7719dbb780f929368eb"
-ARG OPENCLAW_NODE_BOOKWORM_SLIM_DIGEST="sha256:e8e2e91b1378f83c5b2dd15f0247f34110e2fe895f6ca7719dbb780f929368eb"
+ARG OPENCLAW_NODE_BOOKWORM_IMAGE="nikolaik/python-nodejs:python3.11-nodejs24-bookworm@sha256:6f08206081e1936384b205e93aa43ac5b20b6ea55fab64863078a29aaf7d220a"
+ARG OPENCLAW_NODE_BOOKWORM_DIGEST="sha256:6f08206081e1936384b205e93aa43ac5b20b6ea55fab64863078a29aaf7d220a"
+ARG OPENCLAW_NODE_BOOKWORM_SLIM_IMAGE="nikolaik/python-nodejs:python3.11-nodejs24-slim@sha256:8f2f1007b34b8b721f41121020db0f5237425ebf198f3ba15adfd0867fd54fa2"
+ARG OPENCLAW_NODE_BOOKWORM_SLIM_DIGEST="sha256:8f2f1007b34b8b721f41121020db0f5237425ebf198f3ba15adfd0867fd54fa2"
 
 # Base images are pinned to SHA256 digests for reproducible builds.
 # Trade-off: digests must be updated manually when upstream tags move.
@@ -37,8 +37,7 @@ RUN mkdir -p /out && \
       fi; \
     done
 
-FROM ${OPENCLAW_CADDY_IMAGE} AS caddy-binary
-
+# ── Stage 2: Build ──────────────────────────────────────────────
 FROM ${OPENCLAW_NODE_BOOKWORM_IMAGE} AS build
 
 # Install Bun (required for build scripts). Retry the whole bootstrap flow to
@@ -91,7 +90,6 @@ RUN pnpm canvas:a2ui:bundle || \
      echo "stub" > src/canvas-host/a2ui/.bundle.hash && \
      rm -rf vendor/a2ui apps/shared/OpenClawKit/Tools/CanvasA2UI)
 RUN pnpm build:docker
-
 # Force pnpm for UI build (Bun may fail on ARM/Synology architectures)
 ENV OPENCLAW_PREFER_PNPM=1
 RUN pnpm ui:build
@@ -102,6 +100,7 @@ FROM build AS runtime-assets
 RUN CI=true pnpm prune --prod && \
     find dist -type f \( -name '*.d.ts' -o -name '*.d.mts' -o -name '*.d.cts' -o -name '*.map' \) -delete
 
+    # ── Runtime base images ─────────────────────────────────────────
 FROM ${OPENCLAW_NODE_BOOKWORM_IMAGE} AS base-default
 ARG OPENCLAW_NODE_BOOKWORM_DIGEST
 LABEL org.opencontainers.image.base.name="docker.io/library/node:24-bookworm" \
@@ -112,6 +111,7 @@ ARG OPENCLAW_NODE_BOOKWORM_SLIM_DIGEST
 LABEL org.opencontainers.image.base.name="docker.io/library/node:24-bookworm-slim" \
   org.opencontainers.image.base.digest="${OPENCLAW_NODE_BOOKWORM_SLIM_DIGEST}"
 
+# ── Stage 3: Runtime ────────────────────────────────────────────
 FROM base-${OPENCLAW_VARIANT}
 ARG OPENCLAW_VARIANT
 
@@ -146,9 +146,6 @@ COPY --from=runtime-assets --chown=node:node /app/openclaw.mjs .
 COPY --from=runtime-assets --chown=node:node /app/extensions ./extensions
 COPY --from=runtime-assets --chown=node:node /app/skills ./skills
 COPY --from=runtime-assets --chown=node:node /app/docs ./docs
-COPY --from=caddy-binary /usr/bin/caddy /usr/bin/caddy
-COPY openclaw/Caddyfile /etc/caddy/Caddyfile
-COPY openclaw/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
 # Keep pnpm available in the runtime image for container-local workflows.
 # Use a shared Corepack home so the non-root `node` user does not need a
@@ -195,7 +192,7 @@ RUN --mount=type=cache,id=openclaw-bookworm-apt-cache,target=/var/cache/apt,shar
 
 # Optionally install Docker CLI for sandbox container management.
 # Build with: docker build --build-arg OPENCLAW_INSTALL_DOCKER_CLI=1 ...
-# Adds ~50MB. Only the CLI is installed - no Docker daemon.
+# Adds ~50MB. Only the CLI is installed — no Docker daemon.
 # Required for agents.defaults.sandbox to function in Docker deployments.
 ARG OPENCLAW_INSTALL_DOCKER_CLI=""
 ARG OPENCLAW_DOCKER_GPG_FINGERPRINT="9DC858229FC7DD38854AE2D88D81803C0EBFCD88"
@@ -224,7 +221,6 @@ RUN --mount=type=cache,id=openclaw-bookworm-apt-cache,target=/var/cache/apt,shar
       DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
         docker-ce-cli docker-compose-plugin; \
     fi
-
 # ---- add openclaw command ----
 # Keeps the customized CMD shape while following the upstream launcher.
 RUN printf '%s\n' \
@@ -232,13 +228,15 @@ RUN printf '%s\n' \
   'set -e' \
   'exec node /app/openclaw.mjs "$@"' \
   > /usr/local/bin/openclaw && \
-  install -d -o node -g node /data /config /etc/caddy /tmp/caddy && \
-  chmod 755 /usr/local/bin/openclaw /usr/local/bin/docker-entrypoint.sh /usr/bin/caddy /app/openclaw.mjs && \
-  chown -R node:node /data /config /etc/caddy /tmp/caddy
+  install -d -o node -g node /data /config && \
+  chmod 755 /usr/local/bin/openclaw /app/openclaw.mjs && \
+  chown -R node:node /data /config
 # -----------------------------
 
-ENV CADDY_HTTPS_PORT=8443
-ENV CADDY_SITE_ADDRESS=127.0.0.1
+# Expose the CLI binary without requiring npm global writes as non-root.
+RUN ln -sf /app/openclaw.mjs /usr/local/bin/openclaw \
+ && chmod 755 /app/openclaw.mjs
+
 ENV NODE_ENV=production
 
 # Security hardening: Run as non-root user
@@ -260,7 +258,4 @@ USER node
 # For external access from host/ingress, override bind to "lan" and set auth.
 HEALTHCHECK --interval=3m --timeout=10s --start-period=15s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:18789/healthz').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
-
-EXPOSE 8443
-ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
-CMD ["openclaw", "gateway", "--allow-unconfigured"]
+CMD ["node", "openclaw.mjs", "gateway", "--allow-unconfigured"]
