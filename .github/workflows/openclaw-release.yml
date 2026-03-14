@@ -16,7 +16,7 @@ on:
         required: false
       platforms:
         description: "Platforms"
-        default: "linux/amd64,linux/arm64/v8"
+        default: "linux/amd64,linux/arm64"
         required: true
       pushLatest:
         description: "Push latest tag"
@@ -56,7 +56,7 @@ jobs:
         with:
           context: _src/openclaw
           file: _src/openclaw/openclaw/Dockerfile
-          platforms: ${{ github.event.inputs.platforms || 'linux/amd64,linux/arm64/v8' }}
+          platforms: ${{ github.event.inputs.platforms || 'linux/amd64,linux/arm64' }}
           push: true
           build-args: |
             OPENCLAW_INSTALL_BROWSER=true
@@ -72,7 +72,7 @@ jobs:
         with:
           context: _src/openclaw
           file: _src/openclaw/openclaw/Dockerfile
-          platforms: ${{ github.event.inputs.platforms || 'linux/amd64,linux/arm64/v8' }}
+          platforms: ${{ github.event.inputs.platforms || 'linux/amd64,linux/arm64' }}
           push: true
           build-args: |
             OPENCLAW_INSTALL_BROWSER=true
