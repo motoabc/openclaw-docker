@@ -22,7 +22,7 @@ ARG OPENCLAW_NODE_BOOKWORM_SLIM_DIGEST="sha256:8f2f1007b34b8b721f41121020db0f523
 
 # Base images are pinned to SHA256 digests for reproducible builds.
 # Trade-off: digests must be updated manually when upstream tags move.
-# To update, run: docker buildx imagetools inspect node:24-bookworm (or podman)
+# To update, run: docker buildx imagetools inspect nikolaik/python-nodejs:python3.11-nodejs24-bookworm (or podman)
 # and replace the digest below with the current multi-arch manifest list entry.
 
 FROM ${OPENCLAW_NODE_BOOKWORM_IMAGE} AS ext-deps
@@ -103,18 +103,24 @@ RUN CI=true pnpm prune --prod && \
     # ── Runtime base images ─────────────────────────────────────────
 FROM ${OPENCLAW_NODE_BOOKWORM_IMAGE} AS base-default
 ARG OPENCLAW_NODE_BOOKWORM_DIGEST
-LABEL org.opencontainers.image.base.name="docker.io/library/node:24-bookworm" \
+LABEL org.opencontainers.image.base.name="docker.io/library/nikolaik/python-nodejs:python3.11-nodejs24-bookworm" \
   org.opencontainers.image.base.digest="${OPENCLAW_NODE_BOOKWORM_DIGEST}"
 
 FROM ${OPENCLAW_NODE_BOOKWORM_SLIM_IMAGE} AS base-slim
 ARG OPENCLAW_NODE_BOOKWORM_SLIM_DIGEST
-LABEL org.opencontainers.image.base.name="docker.io/library/node:24-bookworm-slim" \
+LABEL org.opencontainers.image.base.name="docker.io/library/nikolaik/python-nodejs:python3.11-nodejs24-slim" \
   org.opencontainers.image.base.digest="${OPENCLAW_NODE_BOOKWORM_SLIM_DIGEST}"
 
 # ── Stage 3: Runtime ────────────────────────────────────────────
 FROM base-${OPENCLAW_VARIANT}
 ARG OPENCLAW_VARIANT
 
+RUN set -eux; \
+    groupmod -n node pn; \
+    usermod -l node -d /home/node -m -g node pn; \
+    getent passwd node; \
+    id node; \
+    ! getent passwd pn
 # OCI base-image metadata for downstream image consumers.
 # If you change these annotations, also update:
 # - docs/install/docker.md ("Base image metadata" section)
@@ -240,7 +246,7 @@ RUN ln -sf /app/openclaw.mjs /usr/local/bin/openclaw \
 ENV NODE_ENV=production
 
 # Security hardening: Run as non-root user
-# The node:24-bookworm image includes a 'node' user (uid 1000)
+# The nikolaik/python-nodejs:python3.11-nodejs24-bookworm image includes a 'node' user (uid 1000)
 # This reduces the attack surface by preventing container escape via root privileges
 USER node
 
